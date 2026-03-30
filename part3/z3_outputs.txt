@@ -1,16 +1,83 @@
-# Part 3: Z3 Solver Outputs
+============================================================
+Part 3: Z3 Compliance Verification Outputs
+Solver: Z3 4.16.0 (Python API)
+Date: 2026-03-30
+============================================================
 
-## Scenario 1: Dependent
-Command: [insert command]
-Output:
-[insert Z3 output]
+------------------------------------------------------------
+Scenario 1: Emma — Expected: IS a dependent (Qualifying Child)
+------------------------------------------------------------
+Taxpayer: Alice (age 35)
+Dependent: Emma (age 10, biological daughter)
+Facts: lives with Alice 12 months, Alice provides 100% support,
+       Emma earns $0, U.S. citizen, no joint return
 
-## Scenario 2: Non-Dependent
-Command: [insert command]
-Output:
-[insert Z3 output]
+Z3 result:           sat
+is_qualifying_child: True
+is_qualifying_rel:   True
+is_dependent:        True
+qc_support_test:     True   (d_self_support_ratio=0.0 is NOT > 0.5 ✓)
+qr_support_test:     True   (taxpayer_support_ratio=1.0 > 0.5 ✓)
 
-## Scenario 3: Borderline
-Command: [insert command]
-Output:
-[insert Z3 output]
+Verdict: CORRECT — Emma IS a dependent.
+Z3 correctly classifies Emma as a dependent via qualifying child.
+
+------------------------------------------------------------
+Scenario 2: Robert — Expected: NOT a dependent
+------------------------------------------------------------
+Taxpayer: Bob (age 40)
+Potential Dependent: Robert (age 45, work colleague, no family relationship)
+Facts: lived with Bob only 3 months, earns $60,000, self-supporting,
+       U.S. citizen, no joint return
+
+Z3 result:           sat
+is_qualifying_child: False
+is_qualifying_rel:   False
+is_dependent:        False
+qc_support_test:     False  (d_self_support_ratio=1.0 > 0.5, fails ✗)
+qr_support_test:     False  (taxpayer_support_ratio=0.0 NOT > 0.5, fails ✗)
+
+Verdict: CORRECT — Robert is NOT a dependent.
+Z3 correctly classifies Robert as not a dependent.
+Reasons for failure:
+  - QC: fails relationship test (not child/sibling), age test (45 > 19),
+         residence test (3 months ≤ 6), and support test
+  - QR: fails relationship test (not specified relative, not full-year
+         household member), income test ($60,000 >> $4,700), support test
+
+------------------------------------------------------------
+Scenario 3: Maya — Expected: IS a dependent (Borderline — Qualifying Child)
+------------------------------------------------------------
+Taxpayer: Carol (age 50)
+Potential Dependent: Maya (age 22, biological daughter, full-time student)
+Facts: lives with Carol 7 months, Maya provides EXACTLY 50% own support,
+       Carol provides EXACTLY 50% of total support, Maya earns $4,600,
+       U.S. citizen, no joint return
+
+Z3 result:           sat
+is_qualifying_child: True
+is_qualifying_rel:   False
+is_dependent:        True
+qc_support_test:     True   (d_self_support_ratio=0.5 is NOT > 0.5 ✓  ← borderline)
+qr_support_test:     False  (taxpayer_support_ratio=0.5 is NOT > 0.5 ✗ ← borderline)
+
+Verdict: CORRECT — Maya IS a dependent (as qualifying child).
+
+Borderline Analysis:
+  The exact 50% self-support ratio sits at the boundary of §152(c)(1)(D):
+  "did not provide MORE THAN half" → NOT(0.5 > 0.5) = NOT(False) = True → PASSES (QC)
+  However, for qualifying relative, §152(d)(1)(C) requires the taxpayer to provide
+  "more than half" (strict inequality) → 0.5 > 0.5 = False → FAILS (QR)
+  This asymmetry in the statute is correctly captured by the SMT encoding.
+  If Maya's self-support were 0.51, she would fail as both QC and QR.
+
+============================================================
+Summary
+============================================================
+| Scenario  | Expected      | Z3 Output     | Correct? |
+|-----------|---------------|---------------|----------|
+| Emma      | IS dependent  | is_dep = True | YES ✓    |
+| Robert    | NOT dependent | is_dep = False| YES ✓    |
+| Maya      | IS dependent  | is_dep = True | YES ✓    |
+============================================================
+All three scenarios correctly classified by Z3.
