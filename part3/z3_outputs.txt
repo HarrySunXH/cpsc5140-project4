@@ -1,0 +1,16 @@
+# Part 3: Z3 Solver Outputs
+
+## Scenario 1: Dependent
+Command: [insert command]
+Output:
+[insert Z3 output]
+
+## Scenario 2: Non-Dependent
+Command: [insert command]
+Output:
+[insert Z3 output]
+
+## Scenario 3: Borderline
+Command: [insert command]
+Output:
+[insert Z3 output]

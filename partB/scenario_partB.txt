@@ -1,0 +1,26 @@
+# Part B: Scenario Description
+
+## Scenario
+
+[Insert scenario here - include all relevant properties:]
+- Taxpayer: [name, relationship to potential dependent]
+- Potential Dependent: [name]
+- Relationship: [e.g., nephew, friend, etc.]
+- Age: [age]
+- Residence: [did they live with taxpayer? for how long?]
+- Income: [gross income of potential dependent]
+- Support: [who provided support, what percentage]
+- Filing status: [did they file a joint return?]
+- Citizenship: [U.S. citizen/resident?]
+
+## LLM Answer (without CoT)
+
+[Insert LLM's initial yes/no answer]
+
+## SMT Solver Answer
+
+[Insert Z3 result]
+
+## These answers differ because...
+
+[Brief note on the discrepancy]
