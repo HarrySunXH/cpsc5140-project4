@@ -81,3 +81,34 @@ Summary
 | Maya      | IS dependent  | is_dep = True | YES ✓    |
 ============================================================
 All three scenarios correctly classified by Z3.
+
+============================================================
+Part B: Divergence Scenario — Alex (8-Month Roommate)
+============================================================
+
+Taxpayer: Dave (age 38)
+Potential Dependent: Alex (age 35, friend — no family relationship)
+Facts: lived with Dave 8 months, Dave provides 65% support,
+       Alex earns $3,000, U.S. citizen, no joint return
+
+Check 1 — assert is_dependent (LLM's claim):
+Z3 result:           unsat  <- Alex CANNOT be a dependent
+
+Check 2 — assert NOT is_dependent:
+Z3 result:           sat
+is_qualifying_child: False
+  qc_relationship_test: False  (not child/sibling)
+  qc_age_test:          False  (age 35)
+is_qualifying_relative: False
+  qr_relationship_test: FALSE  <- decisive failure
+    is_specified_relative:       False (friend ≠ enumerated relative)
+    is_household_member_full_year: False (8 months ≠ full year)
+  qr_income_test:       True   ($3,000 < $4,700) ✓
+  qr_support_test:      True   (0.65 > 0.5) ✓
+is_dependent:          False
+
+Verdict: Alex is NOT a dependent — Z3 is CORRECT.
+LLM (no CoT) was WRONG: it passed income and support checks but
+missed §152(d)(2): friend is not an enumerated relative, and
+8 months does not satisfy the "entire taxable year" household requirement.
+============================================================

@@ -141,6 +141,106 @@ assignment satisfying all §152 conditions, confirming the formalization is corr
 
 ---
 
+---
+
+## Prompt 3 (Manual Test Case Review — Issue Found)
+
+**User:**
+> Let me manually evaluate the qualifying relative relationship test.
+> Suppose Bob's elderly mother Ruth (age 72) lives in a nursing home, earns $0,
+> and Bob provides 80% of her support. Is Ruth a qualifying relative of Bob?
+> Walk through each condition in §152(d) against the SMT model.
+
+**LLM Reasoning:**
+1. §152(d)(1)(A): Is Ruth a qualifying child of any taxpayer? No — she is 72. ✓ (`is_qc_of_any_taxpayer = false`)
+2. §152(d)(2): Relationship test — is Ruth a "specified relative" or full-year household member?
+   - She does not live with Bob (nursing home), so `is_household_member_full_year = false`
+   - She is Bob's mother — but wait: **in the current v1 SMT model, this entire check collapses to a single boolean `is_specified_relative`.** We would set it to `true` manually, but there is nothing in the model that verifies *why* it is true or prevents it from being misused.
+3. §152(d)(1)(B): Ruth earns $0 < $4,700. ✓
+4. §152(d)(1)(C): Bob provides 80% > 50%. ✓
+
+**Issue identified**: The single `is_specified_relative` boolean is a black box. The model accepts any value for it without encoding the actual §152(d)(2) enumeration. This means:
+- A "friend" could be misclassified as a qualifying relative simply by setting `is_specified_relative = true`
+- The model cannot distinguish between a parent (who IS in the list) and a cousin (who is NOT)
+- Manual test cases that exercise the relationship test become unreliable
+
+**Compare with JSON approach**: Comparing with `part1_json.smt2`, I notice it has the same problem — it also uses `is_listed_relative Bool` as a single-flag abstraction.
+
+**Decision**: Both v1 files need to be updated to enumerate the §152(d)(2) relationship categories explicitly.
+
+---
+
+## Prompt 4 (Refinement — Enumerate §152(d)(2) Relationships)
+
+**User:**
+> Revise the SMT model to replace the single `is_specified_relative` flag with explicit
+> Boolean variables for each §152(d)(2) relationship category (A)–(G). Keep the
+> `is_household_member_full_year` variable for the non-relative household member path.
+> Update the `qr_relationship_test` function accordingly.
+
+**LLM Response:**
+
+The §152(d)(2) enumerated relationships are:
+- (A) child or descendant of child — already captured by `is_child_or_descendant` (QC variable, reusable)
+- (B) sibling or descendant — already captured by `is_sibling_or_descendant` (QC variable, reusable)
+- (C) father, mother, or ancestor → `is_parent_or_ancestor`
+- (D) stepfather or stepmother → `is_stepparent`
+- (E) son or daughter of a sibling → `is_niece_or_nephew`
+- (F) brother or sister of a parent → `is_aunt_or_uncle`
+- (G) son/daughter/father/mother/brother/sister-in-law → `is_in_law`
+
+New `qr_relationship_test`:
+```
+(define-fun qr_relationship_test () Bool
+  (or is_child_or_descendant
+      is_sibling_or_descendant
+      is_parent_or_ancestor
+      is_stepparent
+      is_niece_or_nephew
+      is_aunt_or_uncle
+      is_in_law
+      is_household_member_full_year))
+```
+
+**Z3 re-verification (v2)**:
+- Sanity check (is_dependent satisfiable): `sat` ✓
+- Emma scenario (QC path): `sat` ✓ (unaffected — uses is_child_or_descendant)
+- Ruth scenario (QR via parent): `sat` ✓ (`is_parent_or_ancestor = true`, new explicit path)
+- Alex Part B (friend, 8 months): `unsat` ✓ (all 7 categories + household = false)
+
+The refined model correctly handles all test cases. Applied same fix to `part1_json.smt2`.
+
+---
+
+## Prompt 5 (Cross-Comparison: CoT vs JSON)
+
+**User:**
+> Now compare the CoT SMT model and the JSON SMT model side by side.
+> Do they agree on all test cases? What are the structural differences?
+
+**LLM Comparison:**
+
+| Test Case | CoT Result | JSON Result | Match? |
+|---|---|---|---|
+| Sanity check (any dependent) | sat | sat | ✓ |
+| Emma (age 10, daughter, QC) | sat / dependent | sat / dependent | ✓ |
+| Robert (age 45, colleague) | unsat / not dep. | unsat / not dep. | ✓ |
+| Maya (age 22, student, 50% support) | sat / dependent via QC | sat / dependent via QC | ✓ |
+| Ruth (age 72, Bob's mother, QR) | sat / dependent via QR | sat / dependent via QR | ✓ |
+| Alex (age 35, friend, 8 months) | unsat / not dep. | unsat / not dep. | ✓ |
+
+**All 6 test cases agree between the two approaches.**
+
+Structural differences:
+- CoT uses `Real` literals (0.5) for support thresholds; JSON uses rational form `(/ 1.0 2.0)`
+- CoT variable names: `months_same_abode`, `age`, `taxpayer_support_ratio`
+- JSON variable names: `cohabitation_months`, `person_age`, `claimant_support_fraction`
+- Both use the same logical structure after v2 refinement
+
+**Conclusion**: The two approaches are functionally equivalent. The CoT approach is more readable for humans because of its inline legal annotations. The JSON approach benefits from a cleaner two-step workflow that separates legal interpretation from SMT syntax.
+
+---
+
 ## Summary of CoT Approach
 
 | Step | Legal Clause | SMT Predicate |

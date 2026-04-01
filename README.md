@@ -2,7 +2,7 @@
 
 **Course**: CPSC 5140 - Law and LLMs
 **Legal Text**: 26 U.S. Code § 152 — Dependent Defined
-**Team Members**: [Your Name], [Teammate Name]
+**Team Members**: Harry Sun
 
 ## Overview
 
@@ -34,7 +34,7 @@ project4/
 
 ## Approach
 
-| | Person 1 | Person 2 |
+| | 1 | 2                            |
 |---|---|---|
 | **Technique** | Chain-of-Thought (CoT) prompting | Structured JSON intermediary |
 | **Part 1 output** | `part1_cot.smt2` | `part1_json.smt2` |

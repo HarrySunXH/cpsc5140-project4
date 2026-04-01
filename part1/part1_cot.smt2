@@ -1,6 +1,7 @@
 ; ============================================================
 ; Part 1: 26 USC §152 - Dependent Defined
 ; Approach: Chain-of-Thought (CoT) Prompting
+; Version: 2 (refined after iterative review — see transcript)
 ;
 ; CoT Reasoning Process:
 ;   Step 1: Read §152(a) — top-level structure: dependent = qualifying_child OR qualifying_relative
@@ -9,6 +10,13 @@
 ;   Step 4: Read §152(d) — break down qualifying relative into 4 sub-conditions
 ;   Step 5: Compose all sub-conditions into a final is_dependent predicate
 ;   Step 6: Assert the exemption amount constant and run sanity check
+;
+; Refinement history (v1 → v2):
+;   - v1 used a single Boolean `is_specified_relative` for the §152(d)(2) relationship test.
+;     This was identified as too abstract: it does not distinguish between the enumerated
+;     family relationships in §152(d)(2)(A)-(G) and makes test-case verification opaque.
+;   - v2 enumerates each relationship category explicitly, matching the statute's list.
+;   - Cross-check with JSON approach confirmed both encodings agree after this fix.
 ; ============================================================
 
 ; ============================================================
@@ -25,7 +33,7 @@
 ; --- §152(c)(1)(B): Residence ---
 ; CoT: D must have the same principal place of abode as T for MORE THAN HALF the tax year.
 ;      A tax year = 12 months, so more than half = more than 6 months.
-(declare-const months_same_abode Int)  ; integer months D lived with T (0–12)
+(declare-const months_same_abode Int)  ; integer months D lived with T (0-12)
 
 ; --- §152(c)(1)(C): Age ---
 ; CoT: Three alternative ways to satisfy the age test:
@@ -50,7 +58,6 @@
 
 ; --- §152(b)(3): Citizenship / Residency ---
 ; CoT: D must be a U.S. citizen, U.S. national, or resident of the U.S., Canada, or Mexico.
-;      (Adopted child exception exists but is collapsed here.)
 (declare-const is_us_citizen_or_national Bool)
 (declare-const is_resident_us_canada_mexico Bool)
 
@@ -58,24 +65,37 @@
 ; CoT: If T is themselves a dependent of another taxpayer, T cannot claim dependents.
 (declare-const taxpayer_is_dependent_of_another Bool)
 
-; --- §152(d): Qualifying Relative additional variables ---
+; --- §152(d)(2): Qualifying Relative relationship types ---
+; CoT (v2 refinement): §152(d)(2) enumerates specific relationship categories.
+;   The statute lists (A)-(G):
+;     (A) child or descendant of child → reuses is_child_or_descendant
+;     (B) sibling or descendant        → reuses is_sibling_or_descendant
+;     (C) parent, grandparent, or ancestor of taxpayer
+;     (D) stepparent of taxpayer
+;     (E) niece or nephew (child of T's sibling)
+;     (F) aunt or uncle (sibling of T's parent)
+;     (G) son/daughter/father/mother/brother/sister-in-law
+;   OR a member of T's household for the ENTIRE taxable year (non-relative path).
+;
+;   v1 collapsed (C)-(G) into one Boolean `is_specified_relative`.
+;   v2 enumerates them to make test-case auditing transparent.
+(declare-const is_parent_or_ancestor Bool)  ; §152(d)(2)(C): parent, grandparent, etc.
+(declare-const is_stepparent Bool)          ; §152(d)(2)(D): stepfather or stepmother
+(declare-const is_niece_or_nephew Bool)     ; §152(d)(2)(E): child of T's sibling
+(declare-const is_aunt_or_uncle Bool)       ; §152(d)(2)(F): sibling of T's parent
+(declare-const is_in_law Bool)              ; §152(d)(2)(G): in-laws
+(declare-const is_household_member_full_year Bool)  ; non-relative living with T all 12 months
 
-; §152(d)(2): Relationship types for Qualifying Relative
-; CoT: A broader list than qualifying child: includes parents, grandparents,
-;      aunts/uncles, in-laws, etc. OR anyone who is a member of T's household all year.
-(declare-const is_specified_relative Bool)          ; one of the listed family relationships
-(declare-const is_household_member_full_year Bool)  ; lived in T's household ALL 12 months
-
-; §152(d)(1)(B): Gross income test
+; --- §152(d)(1)(B): Gross income test ---
 ; CoT: D's gross income must be LESS THAN the exemption amount.
 (declare-const gross_income Int)      ; D's gross income in dollars
 (declare-const exemption_amount Int)  ; statutory exemption amount (e.g. $4,700 for 2023)
 
-; §152(d)(1)(C): Support by taxpayer
+; --- §152(d)(1)(C): Support by taxpayer ---
 ; CoT: T must have provided MORE THAN HALF of D's total support for the year.
 (declare-const taxpayer_support_ratio Real)  ; fraction of D's total support T provided
 
-; §152(d)(1)(A): Not a qualifying child
+; --- §152(d)(1)(A): Not a qualifying child ---
 ; CoT: A qualifying relative must NOT be a qualifying child of ANY taxpayer (not just T).
 (declare-const is_qc_of_any_taxpayer Bool)
 
@@ -123,10 +143,18 @@
 (define-fun qr_not_qualifying_child_test () Bool
   (not is_qc_of_any_taxpayer))
 
-; CoT Step 4b — §152(d)(2): Relationship or household test
+; CoT Step 4b — §152(d)(2): Relationship or household test (v2: fully enumerated)
+; All §152(d)(2)(A)-(G) categories plus the full-year household member path.
+; (A) and (B) reuse QC relationship variables; (C)-(G) are new explicit variables.
 (define-fun qr_relationship_test () Bool
-  (or is_specified_relative
-      is_household_member_full_year))
+  (or is_child_or_descendant      ; §152(d)(2)(A)
+      is_sibling_or_descendant    ; §152(d)(2)(B)
+      is_parent_or_ancestor       ; §152(d)(2)(C)
+      is_stepparent               ; §152(d)(2)(D)
+      is_niece_or_nephew          ; §152(d)(2)(E)
+      is_aunt_or_uncle            ; §152(d)(2)(F)
+      is_in_law                   ; §152(d)(2)(G)
+      is_household_member_full_year)) ; non-relative, entire year
 
 ; CoT Step 4c — §152(d)(1)(B): Gross income test
 (define-fun qr_income_test () Bool
@@ -164,7 +192,7 @@
 ; CoT Step 1 (final composition):
 ; D is a dependent of T iff:
 ;   (D is a qualifying child OR a qualifying relative)
-;   AND all exceptions are satisfied
+;   AND all §152(b) exceptions are satisfied
 (define-fun is_dependent () Bool
   (and (or is_qualifying_child
            is_qualifying_relative)

@@ -1,26 +1,85 @@
-# Part B: Scenario Description
+Part B: Scenario Where LLM and SMT Solver Disagree
+====================================================
 
-## Scenario
+Scenario Name: "Alex — The 8-Month Roommate"
 
-[Insert scenario here - include all relevant properties:]
-- Taxpayer: [name, relationship to potential dependent]
-- Potential Dependent: [name]
-- Relationship: [e.g., nephew, friend, etc.]
-- Age: [age]
-- Residence: [did they live with taxpayer? for how long?]
-- Income: [gross income of potential dependent]
-- Support: [who provided support, what percentage]
-- Filing status: [did they file a joint return?]
-- Citizenship: [U.S. citizen/resident?]
+Taxpayer: Dave (age 38, U.S. citizen, not a dependent of anyone else)
+Potential Dependent: Alex (age 35)
 
-## LLM Answer (without CoT)
+Facts:
+  - Relationship: Alex is Dave's longtime friend; no family relationship whatsoever.
+  - Residence: Alex moved in with Dave in May and lived there through December
+                — exactly 8 months out of the 12-month tax year.
+  - Gross income: Alex earned $3,000 this year (well below the $4,700 exemption amount).
+  - Support: Dave paid for Alex's rent, food, and bills.
+              Dave provided approximately 65% of Alex's total support.
+              Alex provided approximately 35% of his own support.
+  - Joint return: Alex did not file a joint return (he is single).
+  - Citizenship: Alex is a U.S. citizen.
+  - Note: Alex is not a qualifying child of any taxpayer (he is 35 years old).
 
-[Insert LLM's initial yes/no answer]
+Question: Is Alex a dependent of Dave for federal tax purposes?
 
-## SMT Solver Answer
+------------------------------------------------------------
+LLM Answer (without Chain-of-Thought)
+------------------------------------------------------------
 
-[Insert Z3 result]
+Prompt to LLM:
+> Dave is 38 years old. Alex is Dave's 35-year-old friend who lived with Dave for 8 months
+> of the tax year. Dave provided 65% of Alex's total support. Alex earned $3,000 this year.
+> Alex did not file a joint return and is a U.S. citizen. Dave is not anyone's dependent.
+> Is Alex a dependent of Dave under 26 USC §152? Answer yes or no.
 
-## These answers differ because...
+LLM Answer (no CoT): YES — Alex is a dependent.
 
-[Brief note on the discrepancy]
+LLM Reasoning (no CoT):
+The LLM responded that Alex qualifies because: Dave provides more than half of Alex's support
+(65% > 50%), Alex's income is below the exemption amount ($3,000 < $4,700), and Alex is a
+U.S. citizen who did not file a joint return. The LLM identified these as the key "qualifying
+relative" requirements and concluded Alex is a dependent.
+
+------------------------------------------------------------
+SMT Solver (Z3) Answer
+------------------------------------------------------------
+
+Z3 Result: Alex is NOT a dependent.
+
+Key Z3 findings:
+  - is_qualifying_child: False
+      → Age test fails (35 is not < 19, not < 24+student, not disabled)
+      → Relationship test fails (friend is not child/sibling)
+  - is_qualifying_relative: False
+      → qr_relationship_test: FALSE  ← critical failure
+          * is_listed_relative: False (friend is not an enumerated relative)
+          * full_year_household: False (only 8 months, NOT the entire year)
+      → qr_gross_income: True ($3,000 < $4,700) ✓
+      → qr_claimant_support: True (0.65 > 0.5) ✓
+      → qr_not_qc: True (not a QC of anyone) ✓
+  - is_dependent: False
+
+The relationship test is the decisive failure point.
+
+------------------------------------------------------------
+These answers differ because...
+------------------------------------------------------------
+
+The LLM overlooked a critical requirement of §152(d)(2):
+
+  A qualifying relative must be either:
+    (A) one of the enumerated relatives (child, parent, sibling, grandparent, etc.), OR
+    (B) a member of the taxpayer's household for the ENTIRE taxable year — all 12 months.
+
+Alex is NOT an enumerated relative (he is a friend, not a family member).
+Alex lived with Dave for only 8 months — not the full 12 months required for option (B).
+
+The LLM focused on the three "easy" qualifying relative conditions that Alex passes
+(income < exemption, support > 50%, no joint return) and missed the two-part
+relationship requirement. Because Alex is a non-relative who did not live with Dave
+for the entire year, he fails the qualifying relative test entirely.
+
+The SMT encoding captures this precisely:
+  (define-fun json_qr_relationship () Bool
+    (or is_listed_relative full_year_household))
+
+where `full_year_household` is false (8 months ≠ 12 months) and
+`is_listed_relative` is false (friend ≠ enumerated family member).
